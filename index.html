@@ -1,43 +1,4 @@
-<script type="text/javascript">
-        var gk_isXlsx = false;
-        var gk_xlsxFileLookup = {};
-        var gk_fileData = {};
-        function filledCell(cell) {
-          return cell !== '' && cell != null;
-        }
-        function loadFileData(filename) {
-        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
-            try {
-                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
-                var firstSheetName = workbook.SheetNames[0];
-                var worksheet = workbook.Sheets[firstSheetName];
-
-                // Convert sheet to JSON to filter blank rows
-                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
-                // Filter out blank rows (rows where all cells are empty, null, or undefined)
-                var filteredData = jsonData.filter(row => row.some(filledCell));
-
-                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
-                var headerRowIndex = filteredData.findIndex((row, index) =>
-                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
-                );
-                // Fallback
-                if (headerRowIndex === -1 || headerRowIndex > 25) {
-                  headerRowIndex = 0;
-                }
-
-                // Convert filtered JSON back to CSV
-                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
-                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
-                return csv;
-            } catch (e) {
-                console.error(e);
-                return "";
-            }
-        }
-        return gk_fileData[filename] || "";
-        }
-        </script><!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="fa">
 <head>
     <meta charset="UTF-8">
@@ -115,6 +76,12 @@
         .delete-btn:hover {
             background-color: #b71c1c;
         }
+        .edit-btn {
+            background-color: #f57c00;
+        }
+        .edit-btn:hover {
+            background-color: #e65100;
+        }
         .end-period-btn {
             background-color: #0288d1;
         }
@@ -137,6 +104,12 @@
             background-color: #0288d1;
         }
         .show-btn:hover {
+            background-color: #01579b;
+        }
+        .visibility-btn {
+            background-color: #0288d1;
+        }
+        .visibility-btn:hover {
             background-color: #01579b;
         }
         .total-report {
@@ -192,7 +165,7 @@
         .fixed-back-btn:hover {
             background: #01579b;
         }
-        #personTable, #trustTable, #expenseTable {
+        #personTable, #trustTable, #expenseTable, #userExpenseTable {
             margin-top: 10px;
             width: 100%;
             font-size: 0.9em;
@@ -202,6 +175,35 @@
         }
         #mainPage.active, #reportPage.active {
             display: block;
+        }
+        #passwordPrompt {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+        }
+        .password-container {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+            text-align: center;
+        }
+        .password-container input {
+            width: 80%;
+            margin: 10px 0;
+        }
+        .password-container button {
+            background-color: #00796b;
+        }
+        .password-container button:hover {
+            background-color: #004d40;
         }
         @media (max-width: 600px) {
             input, select, button {
@@ -224,12 +226,22 @@
                 font-size: 0.9em;
                 padding: 8px;
             }
+            .password-container {
+                width: 90%;
+            }
         }
     </style>
     <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;700&display=swap" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
+    <div id="passwordPrompt">
+        <div class="password-container">
+            <h3>ورود به برنامه</h3>
+            <input type="password" id="passwordInput" placeholder="رمز عبور را وارد کنید">
+            <button onclick="checkPassword()">ورود</button>
+        </div>
+    </div>
     <div id="fixedPeriod" class="fixed-period" style="display: none;"></div>
     <button id="fixedBackBtn" class="fixed-back-btn" onclick="showMainPage()">بازگشت به ورودی‌ها</button>
     <h2>محاسبه دنگ سفر - محمدرضا</h2>
@@ -238,14 +250,31 @@
         <div id="mainPage" class="active">
             <div class="period-selector">
                 <h3>مدیریت دوره‌ها</h3>
-                <input type="text" id="periodName" placeholder="نام دوره (مثلا سفر شمال)">
-                <button onclick="addPeriod()">ایجاد دوره</button>
+                <div id="periodManagement" style="display: none;">
+                    <input type="text" id="periodName" placeholder="نام دوره (مثلا سفر شمال)">
+                    <button onclick="addPeriod()">ایجاد دوره</button>
+                </div>
                 <select id="periodSelect" onchange="loadPeriod()">
                     <option value="">انتخاب دوره</option>
                 </select>
+                <div id="visibilityControls" style="display: none;">
+                    <button class="visibility-btn" onclick="togglePeriodVisibility(true)">نمایش دوره</button>
+                    <button class="visibility-btn" onclick="togglePeriodVisibility(false)">عدم نمایش دوره</button>
+                </div>
+                <table id="userExpenseTable" style="display: none;">
+                    <thead>
+                        <tr>
+                            <th>نام فرد/گروه</th>
+                            <th>موضوع</th>
+                            <th>مبلغ</th>
+                            <th>سهم این هزینه</th>
+                        </tr>
+                    </thead>
+                    <tbody id="userExpenseBody"></tbody>
+                </table>
             </div>
 
-            <div class="person-form">
+            <div class="person-form" id="personForm" style="display: none;">
                 <h3>اضافه کردن افراد</h3>
                 <input type="text" id="personName" placeholder="نام فرد یا گروه">
                 <label>آیا گروه است؟</label>
@@ -272,7 +301,7 @@
                 </table>
             </div>
 
-            <div class="expense-form">
+            <div class="expense-form" id="expenseForm">
                 <h3>اضافه کردن هزینه</h3>
                 <select id="expensePerson">
                     <option value="">انتخاب فرد یا گروه</option>
@@ -296,7 +325,7 @@
                 <button onclick="addExpense()" class="add-expense-btn">اضافه کردن هزینه</button>
             </div>
 
-            <div class="trust-form">
+            <div class="trust-form" id="trustForm" style="display: none;">
                 <h3>پرداخت تنخواه</h3>
                 <select id="trustPayer">
                     <option value="">انتخاب پرداخت‌کننده</option>
@@ -325,8 +354,8 @@
             <div class="summary" id="summary">
                 <button onclick="showReportPage()" class="report-btn">مشاهده گزارش‌ها</button>
                 <button onclick="generateExcelReport()" class="report-btn" style="margin-left:10px;">تهیه گزارش اکسل</button>
-                <button onclick="endPeriod()" class="end-period-btn" style="margin-left:10px;">اتمام دوره</button>
-                <button onclick="resetPeriod()" class="delete-btn" style="margin-left:10px;">ریست دوره فعلی</button>
+                <button id="endPeriodBtn" onclick="endPeriod()" class="end-period-btn" style="margin-left:10px; display: none;">اتمام دوره</button>
+                <button id="resetPeriodBtn" onclick="resetPeriod()" class="delete-btn" style="margin-left:10px; display: none;">ریست دوره فعلی</button>
             </div>
         </div>
 
@@ -339,7 +368,7 @@
                         <th>موضوع</th>
                         <th>مبلغ</th>
                         <th>سهم این هزینه</th>
-                        <th>حذف</th>
+                        <th>اقدامات</th>
                     </tr>
                 </thead>
                 <tbody id="expenseBody"></tbody>
@@ -358,6 +387,47 @@
         const API_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
         let periods = {};
         let currentPeriod = null;
+        let userRole = null;
+        let editingExpenseIndex = null;
+
+        function checkPassword() {
+            const password = document.getElementById('passwordInput').value;
+            if (password === '22322344') {
+                userRole = 'user';
+                document.getElementById('passwordPrompt').style.display = 'none';
+                document.getElementById('mainPage').classList.add('active');
+                document.getElementById('resetPeriodBtn').style.display = 'none';
+                document.getElementById('endPeriodBtn').style.display = 'none';
+                document.getElementById('personForm').style.display = 'none';
+                document.getElementById('trustForm').style.display = 'none';
+                document.getElementById('periodManagement').style.display = 'none';
+                document.getElementById('visibilityControls').style.display = 'none';
+                document.getElementById('userExpenseTable').style.display = 'table';
+                initializeApp();
+            } else if (password === 'Fa22322344!' || password === 'admin') {
+                userRole = 'admin';
+                document.getElementById('passwordPrompt').style.display = 'none';
+                document.getElementById('mainPage').classList.add('active');
+                document.getElementById('resetPeriodBtn').style.display = 'inline-block';
+                document.getElementById('endPeriodBtn').style.display = 'inline-block';
+                document.getElementById('personForm').style.display = 'block';
+                document.getElementById('trustForm').style.display = 'block';
+                document.getElementById('periodManagement').style.display = 'block';
+                document.getElementById('visibilityControls').style.display = 'block';
+                document.getElementById('userExpenseTable').style.display = 'none';
+                initializeApp();
+            } else {
+                alert('رمز عبور اشتباه است. لطفاً دوباره تلاش کنید.');
+                document.getElementById('passwordInput').value = '';
+            }
+        }
+
+        async function initializeApp() {
+            await fetchPeriods();
+            currentPeriod = null;
+            resetUI();
+            updateFixedPeriod();
+        }
 
         async function fetchPeriods() {
             try {
@@ -371,6 +441,15 @@
                 }
                 const data = await response.json();
                 periods = data.record || {};
+                // Ensure each period has visibility and ended properties
+                Object.keys(periods).forEach(period => {
+                    if (!periods[period].hasOwnProperty('visible')) {
+                        periods[period].visible = true;
+                    }
+                    if (!periods[period].hasOwnProperty('ended')) {
+                        periods[period].ended = false;
+                    }
+                });
                 renderPeriodSelect();
             } catch (error) {
                 console.error('Error fetching periods:', error);
@@ -402,7 +481,7 @@
         function updateFixedPeriod() {
             const fixedPeriodDiv = document.getElementById('fixedPeriod');
             if (currentPeriod) {
-                fixedPeriodDiv.textContent = `دوره: ${currentPeriod}`;
+                fixedPeriodDiv.textContent = `دوره: ${currentPeriod}${periods[currentPeriod].ended ? ' (تمام‌شده)' : ''}`;
                 fixedPeriodDiv.style.display = 'block';
             } else {
                 fixedPeriodDiv.style.display = 'none';
@@ -413,6 +492,9 @@
             document.getElementById('mainPage').classList.add('active');
             document.getElementById('reportPage').classList.remove('active');
             document.getElementById('fixedBackBtn').style.display = 'none';
+            if (userRole === 'user') {
+                renderUserExpenseTable();
+            }
         }
 
         function showReportPage() {
@@ -430,7 +512,7 @@
         async function addPeriod() {
             const periodName = document.getElementById('periodName').value.trim();
             if (periodName && !periods[periodName]) {
-                periods[periodName] = { people: [], expenses: [], trusts: [] };
+                periods[periodName] = { people: [], expenses: [], trusts: [], visible: true, ended: false };
                 currentPeriod = periodName;
                 await savePeriods();
                 document.getElementById('periodName').value = '';
@@ -444,9 +526,11 @@
             const select = document.getElementById('periodSelect');
             select.innerHTML = '<option value="">انتخاب دوره</option>';
             Object.keys(periods).forEach(period => {
+                // Show visible periods for users, all periods for admin
+                if (userRole === 'user' && !periods[period].visible) return;
                 const option = document.createElement('option');
                 option.value = period;
-                option.text = period;
+                option.text = period + (userRole === 'admin' ? ` (${periods[period].visible ? 'قابل مشاهده' : 'مخفی'}${periods[period].ended ? ', تمام‌شده' : ''})` : '');
                 if (period === currentPeriod) option.selected = true;
                 select.appendChild(option);
             });
@@ -461,8 +545,8 @@
                 updateFixedPeriod();
                 return;
             }
-            if (!periods[periodName]) {
-                alert('دوره انتخاب‌شده معتبر نیست');
+            if (!periods[periodName] || (userRole === 'user' && !periods[periodName].visible)) {
+                alert('دوره انتخاب‌شده معتبر نیست یا دسترسی ندارید');
                 currentPeriod = null;
                 resetUI();
                 updateFixedPeriod();
@@ -476,11 +560,16 @@
             if (document.getElementById('reportPage').classList.contains('active')) {
                 renderTable();
             }
+            if (userRole === 'user') {
+                renderUserExpenseTable();
+                document.getElementById('expenseForm').style.display = periods[currentPeriod].ended ? 'none' : 'block';
+            }
             updateFixedPeriod();
         }
 
         function resetUI() {
             document.getElementById('expenseBody').innerHTML = '';
+            document.getElementById('userExpenseBody').innerHTML = '';
             document.getElementById('trustBody').innerHTML = '';
             document.getElementById('personBody').innerHTML = '';
             document.getElementById('instantResult').innerHTML = '';
@@ -500,6 +589,9 @@
             document.getElementById('expensePerson').innerHTML = '<option value="">انتخاب فرد یا گروه</option>';
             document.getElementById('trustPayer').innerHTML = '<option value="">انتخاب پرداخت‌کننده</option>';
             document.getElementById('trustReceiver').innerHTML = '<option value="">انتخاب دریافت‌کننده</option>';
+            document.getElementById('expenseForm').style.display = (userRole === 'user' && currentPeriod && periods[currentPeriod].ended) ? 'none' : 'block';
+            editingExpenseIndex = null;
+            document.querySelector('.add-expense-btn').textContent = 'اضافه کردن هزینه';
         }
 
         function toggleGroupInput() {
@@ -643,6 +735,10 @@
                 alert('ابتدا یک دوره انتخاب یا ایجاد کنید');
                 return;
             }
+            if (userRole === 'user' && periods[currentPeriod].ended) {
+                alert('این دوره به اتمام رسیده است و نمی‌توانید هزینه اضافه کنید.');
+                return;
+            }
             const person = document.getElementById('expensePerson').value;
             const subject = document.getElementById('expenseSubject').value.trim();
             const amount = parseFloat(document.getElementById('expenseAmount').value);
@@ -650,7 +746,13 @@
             if (person && subject && amount > 0) {
                 let shares = calculateInstantShares(amount, method);
                 if (Object.keys(shares).length === 0) return;
-                periods[currentPeriod].expenses.push({ person, subject, amount, method, shares });
+                if (editingExpenseIndex !== null) {
+                    periods[currentPeriod].expenses[editingExpenseIndex] = { person, subject, amount, method, shares };
+                    editingExpenseIndex = null;
+                    document.querySelector('.add-expense-btn').textContent = 'اضافه کردن هزینه';
+                } else {
+                    periods[currentPeriod].expenses.push({ person, subject, amount, method, shares });
+                }
                 await savePeriods();
                 document.getElementById('expensePerson').value = '';
                 document.getElementById('expenseSubject').value = '';
@@ -662,9 +764,41 @@
                 if (document.getElementById('reportPage').classList.contains('active')) {
                     renderTable();
                 }
+                if (userRole === 'user') {
+                    renderUserExpenseTable();
+                }
             } else {
                 alert('فرد، موضوع و مبلغ معتبر وارد کنید');
             }
+        }
+
+        async function editExpense(index) {
+            if (!currentPeriod || !periods[currentPeriod]) return;
+            const expense = periods[currentPeriod].expenses[index];
+            editingExpenseIndex = index;
+            document.getElementById('expensePerson').value = expense.person;
+            document.getElementById('expenseSubject').value = expense.subject;
+            document.getElementById('expenseAmount').value = expense.amount;
+            document.getElementById('calcMethod').value = expense.method;
+            const customDiv = document.getElementById('customAmounts');
+            const ratioDiv = document.getElementById('customRatioInputs');
+            customDiv.style.display = expense.method === 'custom' ? 'block' : 'none';
+            ratioDiv.style.display = expense.method === 'customRatio' ? 'block' : 'none';
+            if (expense.method === 'custom') {
+                renderCustomInputs();
+                document.querySelectorAll('.custom-amount').forEach(input => {
+                    input.value = expense.shares[input.dataset.person] || 0;
+                });
+            } else if (expense.method === 'customRatio') {
+                renderRatioInputs();
+                document.querySelectorAll('.ratio-amount').forEach(input => {
+                    input.value = expense.shares[input.dataset.person] / (expense.amount / Object.values(expense.shares).reduce((sum, val) => sum + val, 0)) || 0;
+                });
+            }
+            document.querySelector('.add-expense-btn').textContent = 'ویرایش هزینه';
+            document.getElementById('mainPage').classList.add('active');
+            document.getElementById('reportPage').classList.remove('active');
+            document.getElementById('fixedBackBtn').style.display = 'none';
         }
 
         async function addTrust() {
@@ -737,6 +871,9 @@
                 periods[currentPeriod].expenses.splice(index, 1);
                 await savePeriods();
                 renderTable();
+                if (userRole === 'user') {
+                    renderUserExpenseTable();
+                }
                 document.getElementById('instantResult').innerHTML = '';
             }
         }
@@ -771,16 +908,42 @@
                         }
                     });
                     const row = document.createElement('tr');
+                    let actions = userRole === 'admin' ? `<button class="delete-btn" onclick="deleteExpense(${index})">حذف</button> <button class="edit-btn" onclick="editExpense(${index})">ویرایش</button>` : '';
                     row.innerHTML = `
                         <td>${exp.person}</td>
                         <td>${exp.subject}</td>
                         <td>${exp.amount.toLocaleString()} تومان</td>
                         <td>${shareText}</td>
-                        <td><button class="delete-btn" onclick="deleteExpense(${index})">حذف</button></td>
+                        <td>${actions}</td>
                     `;
                     tbody.appendChild(row);
                 });
             }
+        }
+
+        function renderUserExpenseTable() {
+            const tbody = document.getElementById('userExpenseBody');
+            tbody.innerHTML = '';
+            if (currentPeriod && periods[currentPeriod]) {
+                periods[currentPeriod].expenses.forEach((exp, index) => {
+                    let shareText = '';
+                    Object.keys(exp.shares).forEach(personName => {
+                        const person = periods[currentPeriod].people.find(p => p.name === personName);
+                        if (person) {
+                            shareText += `${personName}${person.isGroup ? ` (${person.groupCount} نفر)` : ''}: ${exp.shares[personName].toLocaleString()} تومان<br>`;
+                        }
+                    });
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${exp.person}</td>
+                        <td>${exp.subject}</td>
+                        <td>${exp.amount.toLocaleString()} تومان</td>
+                        <td>${shareText}</td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            }
+            document.getElementById('userExpenseTable').style.display = currentPeriod ? 'table' : 'none';
         }
 
         function calculateInstantShares(amount, method) {
@@ -841,6 +1004,31 @@
 
         function hideTrustTable() {
             document.getElementById('trustTable').style.display = 'none';
+        }
+
+        async function resetPeriod() {
+            if (!currentPeriod) {
+                alert('ابتدا یک دوره انتخاب کنید');
+                return;
+            }
+            if (confirm('آیا مطمئن هستید که می‌خواهید این دوره را ریست کنید بدون تولید گزارش؟')) {
+                delete periods[currentPeriod];
+                currentPeriod = null;
+                await savePeriods();
+                resetUI();
+                showMainPage();
+                renderPeriodSelect();
+            }
+        }
+
+        async function togglePeriodVisibility(visible) {
+            if (!currentPeriod) {
+                alert('ابتدا یک دوره انتخاب کنید');
+                return;
+            }
+            periods[currentPeriod].visible = visible;
+            await savePeriods();
+            renderPeriodSelect();
         }
 
         function generateExcelReport() {
@@ -1066,21 +1254,6 @@
             reportDiv.style.display = 'block';
         }
 
-        async function resetPeriod() {
-            if (!currentPeriod) {
-                alert('ابتدا یک دوره انتخاب کنید');
-                return;
-            }
-            if (confirm('آیا مطمئن هستید که می‌خواهید این دوره را ریست کنید بدون تولید گزارش؟')) {
-                delete periods[currentPeriod];
-                currentPeriod = null;
-                await savePeriods();
-                resetUI();
-                showMainPage();
-                renderPeriodSelect();
-            }
-        }
-
         async function endPeriod() {
             if (!currentPeriod) {
                 alert('ابتدا یک دوره انتخاب کنید');
@@ -1088,6 +1261,8 @@
             }
             if (confirm('آیا دوره به پایان رسیده و می‌خواهید گزارش اکسل تولید شود؟')) {
                 generateExcelReport();
+                periods[currentPeriod].ended = true;
+                await savePeriods();
                 if (confirm('آیا مطمئن هستید که می‌خواهید این دوره را ریست کنید؟')) {
                     delete periods[currentPeriod];
                     currentPeriod = null;
@@ -1099,11 +1274,10 @@
             }
         }
 
-        window.onload = async () => {
-            await fetchPeriods();
-            currentPeriod = null;
-            resetUI();
-            updateFixedPeriod();
+        window.onload = () => {
+            document.getElementById('mainPage').classList.remove('active');
+            document.getElementById('passwordPrompt').style.display = 'flex';
+            document.getElementById('passwordInput').focus();
         };
     </script>
 </body>
